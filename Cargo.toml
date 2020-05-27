@@ -1,0 +1,38 @@
+[package]
+name = "yaanhyy-secio"
+version = "0.1.0"
+authors = ["yaanhyy <yaanhyy@gmail.com>"]
+license = "Apache-2.0 OR MIT"
+description = "secure connections"
+keywords = ["network", "protocol"]
+categories = ["network-programming"]
+repository = "https://github.com/yaanhyy/yaanhyy-secio"
+readme = "README.md"
+edition = "2018"
+
+[dependencies]
+rand = "0.7"
+lazy_static = "1.2.0"
+ed25519-dalek = "1.0.0-pre.3"
+bs58 = "0.3.0"
+thiserror = "1.0"
+multihash = "0.11.0"
+zeroize = "1"
+asn1_der = "0.6.1"
+ring = { version = "0.16.9"}
+fnv = "1.0"
+libsecp256k1 = { version = "0.3.1", optional = true }
+log = "0.4"
+prost = "0.6.1"
+grpcio = { version = "0.5", default-features = false, features = ["protobuf-codec"] }
+protobuf = "2.14"
+futures = "0.3.5"
+
+[dev-dependencies]
+async-std = "1.0"
+quickcheck = "0.9.0"
+
+[build-dependencies]
+#prost-build = "0.6"
+protoc-grpcio = "1.2.0"
+

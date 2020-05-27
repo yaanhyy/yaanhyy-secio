@@ -29,8 +29,7 @@ where S: AsyncRead + AsyncWrite
         pubkey : Some(pubkey.into_protobuf_encoding())
     };
     println!("propose_out:{:?}", propose_out);
-    let mut msg = Vec::with_capacity(propose_out.encoded
-    _len());
+    let mut msg = Vec::with_capacity(propose_out.encoded_len());
     propose_out.encode(&mut msg).expect("Vec<u8> provides capacity as needed");
     println!("msg:{:?}", msg);
     Ok(())

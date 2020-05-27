@@ -140,29 +140,26 @@ impl PublicKey {
     /// exchange with other nodes.
     pub fn into_protobuf_encoding(self) -> Vec<u8> {
         use prost::Message;
-        "ok".to_string().into_bytes()
-//        let public_key = match self {
-//            PublicKey::Ed25519(key) =>
-//                keys_proto::PublicKey   {
-//                    Type: keys_proto::KeyType::Ed25519 as i32,
-//                    Data: key.encode().to_vec()
-//                },
-//            PublicKey::Rsa(key) =>
-//                keys_proto::PublicKey {
-//                    Type: keys_proto::KeyType::Rsa as i32,
-//                    Data: key.encode_x509()
-//                },
-//            #[cfg(feature = "secp256k1")]
-//            PublicKey::Secp256k1(key) =>
-//                keys_proto::PublicKey {
-//                    Type: keys_proto::KeyType::Secp256k1 as i32,
-//                    Data: key.encode().to_vec()
-//                }
-//        };
-//
-//        let mut buf = Vec::with_capacity(public_key.encoded_len());
-//        public_key.encode(&mut buf).expect("Vec<u8> provides capacity as needed");
-//        buf
+
+        let raw_pubkey = match self {
+            PublicKey::Ed25519(key) =>
+
+                    key.encode().to_vec()
+                ,
+            PublicKey::Rsa(key) =>
+
+
+                    key.encode_x509()
+                ,
+            #[cfg(feature = "secp256k1")]
+            PublicKey::Secp256k1(key) =>
+
+                    key.encode().to_vec()
+
+        };
+
+        raw_pubkey
+
     }
 
     /// Decode a public key from a protobuf structure, e.g. read from storage

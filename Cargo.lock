@@ -1567,6 +1567,7 @@ dependencies = [
  "fnv",
  "futures 0.3.5",
  "grpcio",
+ "hmac",
  "lazy_static",
  "libsecp256k1",
  "log",
@@ -1578,6 +1579,7 @@ dependencies = [
  "quickcheck",
  "rand",
  "ring",
+ "sha2",
  "thiserror",
  "zeroize",
 ]

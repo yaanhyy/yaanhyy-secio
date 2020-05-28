@@ -27,6 +27,8 @@
 
 use ring::digest;
 use std::cmp::Ordering;
+use super::exchange::KeyAgreement;
+use super::stream_cipher::Cipher;
 
 const ECDH_P256: &str = "P-256";
 const ECDH_P384: &str = "P-384";
@@ -44,3 +46,86 @@ pub(crate) const DEFAULT_CIPHERS_PROPOSITION: &str = "AES-128,AES-256";
 pub(crate) const DEFAULT_DIGESTS_PROPOSITION: &str = "SHA256,SHA512";
 
 
+/// Given two key agreement proposition strings try to figure out a match.
+///
+/// The `Ordering` parameter determines which argument is preferred. If `Less` or `Equal` we
+/// try for each of `theirs` every one of `ours`, for `Greater` it's the other way around.
+pub fn select_agreement(r: Ordering, ours: &str, theirs: &str)  -> Result<KeyAgreement, String> {
+    let (a, b) = match r {
+        Ordering::Less | Ordering::Equal => (theirs, ours),
+        Ordering::Greater =>  (ours, theirs)
+    };
+    for x in a.split(',') {
+        if b.split(',').any(|y| x == y) {
+            match x {
+                ECDH_P256 => return Ok(KeyAgreement::EcdhP256),
+                ECDH_P384 => return Ok(KeyAgreement::EcdhP384),
+                _ => continue
+            }
+        }
+    }
+    Err("NoSupportIntersection".to_string())
+}
+
+/// Given two cipher proposition strings try to figure out a match.
+///
+/// The `Ordering` parameter determines which argument is preferred. If `Less` or `Equal` we
+/// try for each of `theirs` every one of `ours`, for `Greater` it's the other way around.
+pub fn select_cipher(r: Ordering, ours: &str, theirs: &str) -> Result<Cipher, String> {
+    let (a, b) = match r {
+        Ordering::Less | Ordering::Equal => (theirs, ours),
+        Ordering::Greater =>  (ours, theirs)
+    };
+    for x in a.split(',') {
+        if b.split(',').any(|y| x == y) {
+            match x {
+                AES_128 => return Ok(Cipher::Aes128),
+                AES_256 => return Ok(Cipher::Aes256),
+                TWOFISH_CTR => return Ok(Cipher::TwofishCtr),
+                NULL => return Ok(Cipher::Null),
+                _ => continue
+            }
+        }
+    }
+    Err("SecioError::NoSupportIntersection".to_string())
+}
+
+/// Possible digest algorithms.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum Digest {
+    Sha256,
+    Sha512
+}
+
+impl Digest {
+    /// Returns the size in bytes of a digest of this kind.
+    #[inline]
+    pub fn num_bytes(&self) -> usize {
+        match *self {
+            Digest::Sha256 => 256 / 8,
+            Digest::Sha512 => 512 / 8,
+        }
+    }
+}
+
+
+/// Given two digest proposition strings try to figure out a match.
+///
+/// The `Ordering` parameter determines which argument is preferred. If `Less` or `Equal` we
+/// try for each of `theirs` every one of `ours`, for `Greater` it's the other way around.
+pub fn select_digest(r: Ordering, ours: &str, theirs: &str) -> Result<Digest, String> {
+    let (a, b) = match r {
+        Ordering::Less | Ordering::Equal => (theirs, ours),
+        Ordering::Greater =>  (ours, theirs)
+    };
+    for x in a.split(',') {
+        if b.split(',').any(|y| x == y) {
+            match x {
+                SHA_256 => return Ok(Digest::Sha256),
+                SHA_512 => return Ok(Digest::Sha512),
+                _ => continue
+            }
+        }
+    }
+    Err("SecioError::NoSupportIntersection".to_string())
+}

@@ -6,3 +6,5 @@ pub mod spipe;
 pub mod algo;
 pub mod exchange;
 pub mod keys_proto;
+pub mod stream_cipher;
+pub mod codec;

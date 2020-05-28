@@ -24,7 +24,6 @@ use asn1_der::{FromDerObject, DerObject};
 use rand::RngCore;
 use sha2::{Digest as ShaDigestTrait, Sha256};
 use secp256k1::{Message, Signature};
-use super::error::{DecodingError, SigningError};
 use zeroize::Zeroize;
 use core::fmt;
 
@@ -101,10 +100,10 @@ impl SecretKey {
     /// Create a secret key from a byte slice, zeroing the slice on success.
     /// If the bytes do not constitute a valid Secp256k1 secret key, an
     /// error is returned.
-    pub fn from_bytes(mut sk: impl AsMut<[u8]>) -> Result<SecretKey, DecodingError> {
+    pub fn from_bytes(mut sk: impl AsMut<[u8]>) -> Result<SecretKey, String> {
         let sk_bytes = sk.as_mut();
         let secret = secp256k1::SecretKey::parse_slice(&*sk_bytes)
-            .map_err(|_| DecodingError::new("failed to parse secp256k1 secret key"))?;
+            .map_err(|_| "failed to parse secp256k1 secret key".to_string())?;
         sk_bytes.zeroize();
         Ok(SecretKey(secret))
     }
@@ -113,16 +112,16 @@ impl SecretKey {
     /// structure as defined in [RFC5915].
     ///
     /// [RFC5915]: https://tools.ietf.org/html/rfc5915
-    pub fn from_der(mut der: impl AsMut<[u8]>) -> Result<SecretKey, DecodingError> {
+    pub fn from_der(mut der: impl AsMut<[u8]>) -> Result<SecretKey, String> {
         // TODO: Stricter parsing.
         let der_obj = der.as_mut();
         let obj: Vec<DerObject> = FromDerObject::deserialize((&*der_obj).iter())
-            .map_err(|e| DecodingError::new("Secp256k1 DER ECPrivateKey").source(e))?;
+            .map_err(|e| "Secp256k1 DER ECPrivateKey".to_string())?;
         der_obj.zeroize();
         let sk_obj = obj.into_iter().nth(1)
-            .ok_or_else(|| DecodingError::new("Not enough elements in DER"))?;
+            .ok_or_else(|| "Not enough elements in DER".to_string())?;
         let mut sk_bytes: Vec<u8> = FromDerObject::from_der_object(sk_obj)
-            .map_err(DecodingError::new)?;
+            .map_err(|_| "Not enough elements in DER".to_string())?;
         let sk = SecretKey::from_bytes(&mut sk_bytes)?;
         sk_bytes.zeroize();
         Ok(sk)
@@ -132,7 +131,7 @@ impl SecretKey {
     /// ECDSA signature, as defined in [RFC3278].
     ///
     /// [RFC3278]: https://tools.ietf.org/html/rfc3278#section-8.2
-    pub fn sign(&self, msg: &[u8]) -> Result<Vec<u8>, SigningError> {
+    pub fn sign(&self, msg: &[u8]) -> Result<Vec<u8>, String> {
         self.sign_hash(Sha256::digest(msg).as_ref())
     }
 
@@ -143,9 +142,9 @@ impl SecretKey {
 
     /// Sign a raw message of length 256 bits with this secret key, produces a DER-encoded
     /// ECDSA signature.
-    pub fn sign_hash(&self, msg: &[u8]) -> Result<Vec<u8>, SigningError> {
+    pub fn sign_hash(&self, msg: &[u8]) -> Result<Vec<u8>, String> {
         let m = Message::parse_slice(msg)
-            .map_err(|_| SigningError::new("failed to parse secp256k1 digest"))?;
+            .map_err(|_| "failed to parse secp256k1 digest".to_string())?;
         Ok(secp256k1::sign(&m, &self.0).0.serialize_der().as_ref().into())
     }
 }
@@ -180,9 +179,9 @@ impl PublicKey {
 
     /// Decode a public key from a byte slice in the the format produced
     /// by `encode`.
-    pub fn decode(k: &[u8]) -> Result<PublicKey, DecodingError> {
+    pub fn decode(k: &[u8]) -> Result<PublicKey, String> {
         secp256k1::PublicKey::parse_slice(k, Some(secp256k1::PublicKeyFormat::Compressed))
-            .map_err(|_| DecodingError::new("failed to parse secp256k1 public key"))
+            .map_err(|_| "failed to parse secp256k1 public key".to_string())
             .map(PublicKey)
     }
 }

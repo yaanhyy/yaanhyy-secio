@@ -10,6 +10,7 @@ use log::debug;
 use super::identity::PublicKey;
 use super::codec::Hmac;
 use std::{cmp::{self, Ordering}, io};
+use super::stream_cipher::ctr;
 
 fn encode_prefix_len(msg: Vec<u8>, max_len: u32) -> Result<Vec<u8>, String>{
     let len = msg.len();
@@ -249,6 +250,23 @@ where S: AsyncRead + AsyncWrite  + Send + Unpin + 'static
             Ordering::Greater => (first_half, second_half),
         }
     };
+
+    let (encoding_cipher, encoding_hmac) = {
+        let (iv, rest) = local_infos.split_at(iv_size);
+        let (cipher_key, mac_key) = rest.split_at(cipher_key_size);
+        let hmac = Hmac::from_key(chosen_hash, mac_key);
+        let cipher = ctr(chosen_cipher, cipher_key, iv);
+        (cipher, hmac)
+    };
+
+    let (decoding_cipher, decoding_hmac) = {
+        let (iv, rest) = remote_infos.split_at(iv_size);
+        let (cipher_key, mac_key) = rest.split_at(cipher_key_size);
+        let hmac = Hmac::from_key(chosen_hash, mac_key);
+        let cipher = ctr(chosen_cipher, cipher_key, iv);
+        (cipher, hmac)
+    };
+
 
     Ok(())
 }

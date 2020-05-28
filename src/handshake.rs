@@ -6,9 +6,19 @@ use super::spipe::Propose;
 use super::exchange::KeyAgreement;
 use prost::Message;
 
-fn handshake<S>(socket: S, mut config: SecioConfig) -> Result<(), String>
-where S: AsyncRead + AsyncWrite
+
+fn encode_prefix_len(msg: Vec<u8>, max_len: u32) -> Result<Vec<u8>, String>{
+    let len = msg.len();
+    if len as u32 > max_len {
+        return Err("msg too long".to_string());
+    }
+    return Ok(msg)
+}
+
+async fn handshake<S>(mut socket: S, mut config: SecioConfig) -> Result<(), String>
+where S: AsyncRead + AsyncWrite  + Send + Unpin + 'static
 {
+    // step 1. Propose -- propose cipher suite + send pubkeys + nonce
     let local_nonce = {
         let mut local_nonce = [0; 16];
         rand::thread_rng()
@@ -31,7 +41,16 @@ where S: AsyncRead + AsyncWrite
     println!("propose_out:{:?}", propose_out);
     let mut msg = Vec::with_capacity(propose_out.encoded_len());
     propose_out.encode(&mut msg).expect("Vec<u8> provides capacity as needed");
+
     println!("msg:{:?}", msg);
+    let mut buf = vec![0u8; 1024];
+    let n = socket.read(&mut buf).await.unwrap();
+    println!("buf_len:{},buf:{:?}", n, buf);
+    let msg_clone = msg.clone();
+    let res = socket.write_all(&(msg_clone.len() as u32).to_be_bytes()).await;
+    if let Ok(e) = res {
+        let res = socket.write_all(&(msg_clone.clone())).await;
+    }
     Ok(())
 }
 
@@ -39,22 +58,21 @@ mod tests {
     use crate::identity;
     use super::handshake;
     use crate::config::SecioConfig;
-    use async_std::net;
     use std::thread::sleep;
     use std::time;
     #[test]
     fn handshake_test(){
-        async_std::task::spawn(async move {
+        async_std::task::block_on(async move {
             let listener = async_std::net::TcpListener::bind("127.0.0.1:5679").await.unwrap();
             let connec = listener.accept().await.unwrap().0;
             let key1 = identity::Keypair::generate_ed25519();
             let mut config = SecioConfig::new(key1);
-            handshake(connec, config);
+            let res = handshake(connec, config).await;
         });
-        loop{
-            println!("wait");
-            let ten_millis = time::Duration::from_secs(10);
-            sleep(ten_millis);
-        };
+//        loop{
+//            println!("wait");
+//            let ten_millis = time::Duration::from_secs(10);
+//            sleep(ten_millis);
+//        };
     }
 }

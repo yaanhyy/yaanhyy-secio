@@ -26,6 +26,7 @@ pub mod rsa;
 pub mod secp256k1;
 
 use crate::peer_id::{PeerId};
+use super::keys_proto;
 
 /// Identity keypair of a node.
 ///
@@ -141,24 +142,28 @@ impl PublicKey {
     pub fn into_protobuf_encoding(self) -> Vec<u8> {
         use prost::Message;
 
-        let raw_pubkey = match self {
+        let public_key = match self {
             PublicKey::Ed25519(key) =>
-
-                    key.encode().to_vec()
-                ,
+                keys_proto::PublicKey {
+                    r#type: keys_proto::KeyType::Ed25519 as i32,
+                    data: key.encode().to_vec()
+                },
             PublicKey::Rsa(key) =>
-
-
-                    key.encode_x509()
-                ,
+                keys_proto::PublicKey {
+                    r#type: keys_proto::KeyType::Rsa as i32,
+                    data: key.encode_x509()
+                },
             #[cfg(feature = "secp256k1")]
             PublicKey::Secp256k1(key) =>
-
-                    key.encode().to_vec()
-
+                keys_proto::PublicKey {
+                    r#type: keys_proto::KeyType::Secp256k1 as i32,
+                    data: key.encode().to_vec()
+                }
         };
 
-        raw_pubkey
+        let mut buf = Vec::with_capacity(public_key.encoded_len());
+        public_key.encode(&mut buf).expect("Vec<u8> provides capacity as needed");
+        buf
 
     }
 

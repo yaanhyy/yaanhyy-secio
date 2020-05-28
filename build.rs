@@ -14,4 +14,5 @@ use std::path::Path;
 
 fn main() {
     prost_build::compile_protos(&["src/structs.proto"], &["src"]).unwrap();
+    prost_build::compile_protos(&["src/keys.proto"], &["src"]).unwrap();
 }

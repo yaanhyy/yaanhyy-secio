@@ -9,7 +9,7 @@ use sha2::{Digest as ShaDigestTrait, Sha256};
 use log::debug;
 use super::identity::PublicKey;
 use super::codec::Hmac;
-use std::{cmp::{self, Ordering}, io};
+use std::{cmp::{self, Ordering, min}, io};
 use super::stream_cipher::ctr;
 
 fn encode_prefix_len(msg: Vec<u8>, max_len: u32) -> Result<Vec<u8>, String>{
@@ -73,8 +73,8 @@ where S: AsyncRead + AsyncWrite  + Send + Unpin + 'static
         }
     };
 
-    let remote_public_key_encoded = propose_in.pubkey.unwrap_or_default();
-    let remote_nonce = propose_in.rand.unwrap_or_default();
+    let mut remote_public_key_encoded = propose_in.pubkey.unwrap_or_default();
+    let mut remote_nonce = propose_in.rand.unwrap_or_default();
     println!("remote_nonce:{:?}", remote_nonce);
 
     let remote_public_key = match PublicKey::from_protobuf_encoding(&remote_public_key_encoded) {
@@ -251,7 +251,7 @@ where S: AsyncRead + AsyncWrite  + Send + Unpin + 'static
         }
     };
 
-    let (encoding_cipher, encoding_hmac) = {
+    let (mut encoding_cipher, mut encoding_hmac) = {
         let (iv, rest) = local_infos.split_at(iv_size);
         let (cipher_key, mac_key) = rest.split_at(cipher_key_size);
         let hmac = Hmac::from_key(chosen_hash, mac_key);
@@ -259,7 +259,7 @@ where S: AsyncRead + AsyncWrite  + Send + Unpin + 'static
         (cipher, hmac)
     };
 
-    let (decoding_cipher, decoding_hmac) = {
+    let (mut decoding_cipher, mut decoding_hmac) = {
         let (iv, rest) = remote_infos.split_at(iv_size);
         let (cipher_key, mac_key) = rest.split_at(cipher_key_size);
         let hmac = Hmac::from_key(chosen_hash, mac_key);
@@ -267,6 +267,67 @@ where S: AsyncRead + AsyncWrite  + Send + Unpin + 'static
         (cipher, hmac)
     };
 
+    //receive remote send check nonce
+    let mut len = [0; 4];
+    socket.read_exact(&mut len).await.unwrap();
+    let mut n = u32::from_be_bytes(len) as usize;
+    let mut remote_sendback_nonce_bytes = vec![0u8; n];
+    socket.read_exact(&mut remote_sendback_nonce_bytes).await.unwrap();
+    println!("buf_len:{},buf:{:?}", n, remote_sendback_nonce_bytes);
+    let content_length = remote_sendback_nonce_bytes.len() - decoding_hmac.num_bytes();
+    {
+        let (crypted_data, expected_hash) = remote_sendback_nonce_bytes.split_at(content_length);
+        debug_assert_eq!(expected_hash.len(), decoding_hmac.num_bytes());
+
+        if decoding_hmac.verify(crypted_data, expected_hash).is_err() {
+            debug!("hmac mismatch when decoding secio frame");
+            return Err("SecioError::HmacNotMatching".to_string());
+        }
+    }
+
+    let mut data_buf = remote_sendback_nonce_bytes;
+    data_buf.truncate(content_length);
+    decoding_cipher.decrypt(&mut data_buf);
+
+    let n = min(data_buf.len(), local_nonce.len());
+    if data_buf[.. n] != local_nonce[.. n] {
+        return Err("SecioError::NonceVerificationFailed".to_string());
+    }
+
+    // Send our remote `nonce` to remote peer for check
+    encoding_cipher.encrypt(&mut remote_nonce);
+    let signature = encoding_hmac.sign(&remote_nonce[..]);
+    remote_nonce.extend_from_slice(signature.as_ref());
+
+
+    let res = socket.write_all(&(remote_nonce.len() as u32).to_be_bytes()).await;
+    if let Ok(e) = res {
+        let res = socket.write_all(&(remote_nonce)).await;
+    }
+
+    //test
+    let mut len = [0; 4];
+    socket.read_exact(&mut len).await.unwrap();
+    let mut n = u32::from_be_bytes(len) as usize;
+    let mut hello_buf = vec![0u8; n];
+    socket.read_exact(&mut hello_buf).await.unwrap();
+    println!("buf_len:{},buf:{:?}", n, hello_buf);
+    let content_length = hello_buf.len() - decoding_hmac.num_bytes();
+    {
+        let (crypted_data, expected_hash) = hello_buf.split_at(content_length);
+        debug_assert_eq!(expected_hash.len(), decoding_hmac.num_bytes());
+
+        if decoding_hmac.verify(crypted_data, expected_hash).is_err() {
+            debug!("hmac mismatch when decoding secio frame");
+            return Err("SecioError::HmacNotMatching".to_string());
+        }
+    }
+
+    let mut data_buf = hello_buf;
+    data_buf.truncate(content_length);
+    decoding_cipher.decrypt(&mut data_buf);
+    let hello_str = std::str::from_utf8(&data_buf).unwrap();
+    println!("{}", hello_str);
 
     Ok(())
 }

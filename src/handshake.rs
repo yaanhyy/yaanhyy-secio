@@ -8,7 +8,7 @@ use prost::Message;
 use sha2::{Digest as ShaDigestTrait, Sha256};
 use log::debug;
 use super::identity::PublicKey;
-use super::codec::Hmac;
+use super::codec::{Hmac, SecureConn};
 use std::{cmp::{self, Ordering, min}, io};
 use super::stream_cipher::ctr;
 
@@ -20,7 +20,7 @@ fn encode_prefix_len(msg: Vec<u8>, max_len: u32) -> Result<Vec<u8>, String>{
     return Ok(msg)
 }
 
-async fn handshake<S>(mut socket: S, mut config: SecioConfig) -> Result<(), String>
+async fn handshake<S>(mut socket: S, mut config: SecioConfig) -> Result<SecureConn<S>, String>
 where S: AsyncRead + AsyncWrite  + Send + Unpin + 'static
 {
     // step 1. Propose -- propose cipher suite + send pubkeys + nonce
@@ -267,69 +267,70 @@ where S: AsyncRead + AsyncWrite  + Send + Unpin + 'static
         (cipher, hmac)
     };
 
+    let mut secure_conn = SecureConn{socket: socket, encoding_cipher, decoding_cipher, encoding_hmac, decoding_hmac};
     //receive remote send check nonce
-    let mut len = [0; 4];
-    socket.read_exact(&mut len).await.unwrap();
-    let mut n = u32::from_be_bytes(len) as usize;
-    let mut remote_sendback_nonce_bytes = vec![0u8; n];
-    socket.read_exact(&mut remote_sendback_nonce_bytes).await.unwrap();
-    println!("buf_len:{},buf:{:?}", n, remote_sendback_nonce_bytes);
-    let content_length = remote_sendback_nonce_bytes.len() - decoding_hmac.num_bytes();
-    {
-        let (crypted_data, expected_hash) = remote_sendback_nonce_bytes.split_at(content_length);
-        debug_assert_eq!(expected_hash.len(), decoding_hmac.num_bytes());
-
-        if decoding_hmac.verify(crypted_data, expected_hash).is_err() {
-            debug!("hmac mismatch when decoding secio frame");
-            return Err("SecioError::HmacNotMatching".to_string());
-        }
-    }
-
-    let mut data_buf = remote_sendback_nonce_bytes;
-    data_buf.truncate(content_length);
-    decoding_cipher.decrypt(&mut data_buf);
-
+    // let mut len = [0; 4];
+    // socket.read_exact(&mut len).await.unwrap();
+    // let mut n = u32::from_be_bytes(len) as usize;
+    // let mut remote_sendback_nonce_bytes = vec![0u8; n];
+    // socket.read_exact(&mut remote_sendback_nonce_bytes).await.unwrap();
+    // println!("buf_len:{},buf:{:?}", n, remote_sendback_nonce_bytes);
+    // let content_length = remote_sendback_nonce_bytes.len() - decoding_hmac.num_bytes();
+    // {
+    //     let (crypted_data, expected_hash) = remote_sendback_nonce_bytes.split_at(content_length);
+    //     debug_assert_eq!(expected_hash.len(), decoding_hmac.num_bytes());
+    //
+    //     if decoding_hmac.verify(crypted_data, expected_hash).is_err() {
+    //         debug!("hmac mismatch when decoding secio frame");
+    //         return Err("SecioError::HmacNotMatching".to_string());
+    //     }
+    // }
+    //
+    // let mut data_buf = remote_sendback_nonce_bytes;
+    // data_buf.truncate(content_length);
+    // decoding_cipher.decrypt(&mut data_buf);
+    let data_buf = secure_conn.read().await;
     let n = min(data_buf.len(), local_nonce.len());
     if data_buf[.. n] != local_nonce[.. n] {
         return Err("SecioError::NonceVerificationFailed".to_string());
     }
 
     // Send our remote `nonce` to remote peer for check
-    encoding_cipher.encrypt(&mut remote_nonce);
-    let signature = encoding_hmac.sign(&remote_nonce[..]);
-    remote_nonce.extend_from_slice(signature.as_ref());
-
-
-    let res = socket.write_all(&(remote_nonce.len() as u32).to_be_bytes()).await;
-    if let Ok(e) = res {
-        let res = socket.write_all(&(remote_nonce)).await;
-    }
+    secure_conn.send(remote_nonce).await;
+    // encoding_cipher.encrypt(&mut remote_nonce);
+    // let signature = encoding_hmac.sign(&remote_nonce[..]);
+    // remote_nonce.extend_from_slice(signature.as_ref());
+    //
+    //
+    // let res = socket.write_all(&(remote_nonce.len() as u32).to_be_bytes()).await;
+    // if let Ok(e) = res {
+    //     let res = socket.write_all(&(remote_nonce)).await;
+    // }
 
     //test
-    let mut len = [0; 4];
-    socket.read_exact(&mut len).await.unwrap();
-    let mut n = u32::from_be_bytes(len) as usize;
-    let mut hello_buf = vec![0u8; n];
-    socket.read_exact(&mut hello_buf).await.unwrap();
-    println!("buf_len:{},buf:{:?}", n, hello_buf);
-    let content_length = hello_buf.len() - decoding_hmac.num_bytes();
-    {
-        let (crypted_data, expected_hash) = hello_buf.split_at(content_length);
-        debug_assert_eq!(expected_hash.len(), decoding_hmac.num_bytes());
+    // let mut len = [0; 4];
+    // socket.read_exact(&mut len).await.unwrap();
+    // let mut n = u32::from_be_bytes(len) as usize;
+    // let mut hello_buf = vec![0u8; n];
+    // socket.read_exact(&mut hello_buf).await.unwrap();
+    // println!("buf_len:{},buf:{:?}", n, hello_buf);
+    // let content_length = hello_buf.len() - decoding_hmac.num_bytes();
+    // {
+    //     let (crypted_data, expected_hash) = hello_buf.split_at(content_length);
+    //     debug_assert_eq!(expected_hash.len(), decoding_hmac.num_bytes());
+    //
+    //     if decoding_hmac.verify(crypted_data, expected_hash).is_err() {
+    //         debug!("hmac mismatch when decoding secio frame");
+    //         return Err("SecioError::HmacNotMatching".to_string());
+    //     }
+    // }
+    //
+    // let mut data_buf = hello_buf;
+    // data_buf.truncate(content_length);
+    // decoding_cipher.decrypt(&mut data_buf);
 
-        if decoding_hmac.verify(crypted_data, expected_hash).is_err() {
-            debug!("hmac mismatch when decoding secio frame");
-            return Err("SecioError::HmacNotMatching".to_string());
-        }
-    }
 
-    let mut data_buf = hello_buf;
-    data_buf.truncate(content_length);
-    decoding_cipher.decrypt(&mut data_buf);
-    let hello_str = std::str::from_utf8(&data_buf).unwrap();
-    println!("{}", hello_str);
-
-    Ok(())
+    Ok(secure_conn)
 }
 
 /// Custom algorithm translated from reference implementations. Needs to be the same algorithm
@@ -387,8 +388,15 @@ mod tests {
             let connec = listener.accept().await.unwrap().0;
             let key1 = identity::Keypair::generate_ed25519();
             let mut config = SecioConfig::new(key1);
-            let res = handshake(connec, config).await;
-            println!("handshake res:{:?}", res);
+            let mut res = handshake(connec, config).await;
+            if let Ok(mut secure_conn) = res {
+                println!("handshake res: Ok");
+                let data_buf = secure_conn.read().await;
+                let hello_str = std::str::from_utf8(&data_buf).unwrap();
+                println!("{}", hello_str);
+            } else if let Err(res) = res{
+                println!("handshake res fail: {:?}", res);
+            }
         });
 //        loop{
 //            println!("wait");

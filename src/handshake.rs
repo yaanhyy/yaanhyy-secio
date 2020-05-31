@@ -20,7 +20,7 @@ fn encode_prefix_len(msg: Vec<u8>, max_len: u32) -> Result<Vec<u8>, String>{
     return Ok(msg)
 }
 
-async fn handshake<S>(mut socket: S, mut config: SecioConfig) -> Result<SecureConn<S>, String>
+pub async fn handshake<S>(mut socket: S, mut config: SecioConfig) -> Result<SecureConn<S>, String>
 where S: AsyncRead + AsyncWrite  + Send + Unpin + 'static
 {
     // step 1. Propose -- propose cipher suite + send pubkeys + nonce
@@ -296,7 +296,7 @@ where S: AsyncRead + AsyncWrite  + Send + Unpin + 'static
     }
 
     // Send our remote `nonce` to remote peer for check
-    secure_conn.send(remote_nonce).await;
+    secure_conn.send(& mut remote_nonce).await;
     // encoding_cipher.encrypt(&mut remote_nonce);
     // let signature = encoding_hmac.sign(&remote_nonce[..]);
     // remote_nonce.extend_from_slice(signature.as_ref());

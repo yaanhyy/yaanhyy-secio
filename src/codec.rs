@@ -4,6 +4,7 @@ use super::algo::Digest;
 use futures::prelude::*;
 use crate::stream_cipher::StreamCipher;
 use log::debug;
+use std::{pin::Pin, task::Context, task::Poll};
 
 #[derive(Debug, Clone)]
 pub enum Hmac {
@@ -76,14 +77,23 @@ pub struct SecureConn<S> {
     pub decoding_hmac: Hmac,
 }
 
+
+// impl AsyncRead for SecureConn<S>
+// {
+//     fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut [u8])
+//                  -> Poll<Result<(), String>> {
+//         Poll::Ready(Ok(()))
+//     }
+// }
+
 impl <S: AsyncRead + AsyncWrite  + Send + Unpin + 'static>SecureConn<S> {
-    pub async fn send(&mut self, mut buf: Vec<u8>) {
-        self.encoding_cipher.encrypt(&mut buf);
-        let signature = self.encoding_hmac.sign(&buf[..]);
+    pub async fn send(&mut self, buf: & mut Vec<u8>) {
+        self.encoding_cipher.encrypt( buf.as_mut());
+        let signature = self.encoding_hmac.sign(buf.as_mut());
         buf.extend_from_slice(signature.as_ref());
         let res = self.socket.write_all(&(buf.len() as u32).to_be_bytes()).await;
         if let Ok(e) = res {
-            let res = self.socket.write_all(&(buf)).await;
+            let res = self.socket.write_all(buf.as_mut()).await;
         }
     }
 

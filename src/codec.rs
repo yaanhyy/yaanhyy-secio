@@ -87,12 +87,20 @@ pub struct SecureConn<S> {
 // }
 
 impl <S: AsyncRead + AsyncWrite  + Send + Unpin + 'static>SecureConn<S> {
-    pub async fn send(&mut self, buf: & mut Vec<u8>) -> io::Result<()> {
+    pub async fn send(&mut self, buf: & mut Vec<u8>) -> Result<(),String> {
         self.encoding_cipher.encrypt( buf.as_mut());
         let signature = self.encoding_hmac.sign(buf.as_mut());
         buf.extend_from_slice(signature.as_ref());
-         self.socket.write_all(&(buf.len() as u32).to_be_bytes()).await?;
-         self.socket.write_all(buf.as_mut()).await
+        let mut res = self.socket.write_all(&(buf.len() as u32).to_be_bytes()).await;
+        if let Ok(_) = res {
+            res = self.socket.write_all(buf.as_mut()).await;
+            if let Err(e) = res {
+                return Err("secio send fail".to_string());
+            }
+        } else {
+            return Err("secio send fail".to_string());
+        }
+        Ok(())
     }
 
     pub async fn read(&mut self) -> Result<Vec<u8>,String>{

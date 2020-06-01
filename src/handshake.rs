@@ -289,7 +289,7 @@ where S: AsyncRead + AsyncWrite  + Send + Unpin + 'static
     // let mut data_buf = remote_sendback_nonce_bytes;
     // data_buf.truncate(content_length);
     // decoding_cipher.decrypt(&mut data_buf);
-    let data_buf = secure_conn.read().await;
+    let data_buf = secure_conn.read().await?;
     let n = min(data_buf.len(), local_nonce.len());
     if data_buf[.. n] != local_nonce[.. n] {
         return Err("SecioError::NonceVerificationFailed".to_string());
@@ -382,7 +382,7 @@ mod tests {
     use std::time;
     use sha2::{Digest as ShaDigestTrait, Sha256};
     #[test]
-    fn handshake_test(){
+    fn handshake_test() -> Result<(), String>{
         async_std::task::block_on(async move {
             let listener = async_std::net::TcpListener::bind("127.0.0.1:5679").await.unwrap();
             let connec = listener.accept().await.unwrap().0;
@@ -391,13 +391,16 @@ mod tests {
             let mut res = handshake(connec, config).await;
             if let Ok(mut secure_conn) = res {
                 println!("handshake res: Ok");
-                let data_buf = secure_conn.read().await;
-                let hello_str = std::str::from_utf8(&data_buf).unwrap();
-                println!("{}", hello_str);
+                let res = secure_conn.read().await;
+                if let Ok(data_buf) = res {
+                    let hello_str = std::str::from_utf8(&data_buf).unwrap();
+                    println!("{}", hello_str);
+                }
             } else if let Err(res) = res{
                 println!("handshake res fail: {:?}", res);
             }
         });
+        Ok(())
 //        loop{
 //            println!("wait");
 //            let ten_millis = time::Duration::from_secs(10);

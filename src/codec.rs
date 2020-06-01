@@ -4,7 +4,7 @@ use super::algo::Digest;
 use futures::prelude::*;
 use crate::stream_cipher::StreamCipher;
 use log::debug;
-use std::{pin::Pin, task::Context, task::Poll};
+use std::{pin::Pin, task::Context, task::Poll, io};
 
 #[derive(Debug, Clone)]
 pub enum Hmac {
@@ -87,17 +87,15 @@ pub struct SecureConn<S> {
 // }
 
 impl <S: AsyncRead + AsyncWrite  + Send + Unpin + 'static>SecureConn<S> {
-    pub async fn send(&mut self, buf: & mut Vec<u8>) {
+    pub async fn send(&mut self, buf: & mut Vec<u8>) -> io::Result<()> {
         self.encoding_cipher.encrypt( buf.as_mut());
         let signature = self.encoding_hmac.sign(buf.as_mut());
         buf.extend_from_slice(signature.as_ref());
-        let res = self.socket.write_all(&(buf.len() as u32).to_be_bytes()).await;
-        if let Ok(e) = res {
-            let res = self.socket.write_all(buf.as_mut()).await;
-        }
+         self.socket.write_all(&(buf.len() as u32).to_be_bytes()).await?;
+         self.socket.write_all(buf.as_mut()).await
     }
 
-    pub async fn read(&mut self) -> Vec<u8> {
+    pub async fn read(&mut self) -> Result<Vec<u8>,String>{
         let mut len = [0; 4];
         self.socket.read_exact(&mut len).await.unwrap();
         let mut n = u32::from_be_bytes(len) as usize;
@@ -111,13 +109,13 @@ impl <S: AsyncRead + AsyncWrite  + Send + Unpin + 'static>SecureConn<S> {
 
             if self.decoding_hmac.verify(crypted_data, expected_hash).is_err() {
                 debug!("hmac mismatch when decoding secio frame");
-                //return Err("SecioError::HmacNotMatching".to_string());
+                return Err("SecioError::HmacNotMatching".to_string());
             }
         }
 
         let mut data_buf = read_buf;
         data_buf.truncate(content_length);
         self.decoding_cipher.decrypt(&mut data_buf);
-        return data_buf;
+        return Ok(data_buf);
     }
 }

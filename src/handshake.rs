@@ -13,7 +13,7 @@ use super::identity::PublicKey;
 use super::codec::{Hmac, SecureHalfConnWrite, SecureHalfConnRead};
 use std::{cmp::{self, Ordering, min}, io};
 use super::stream_cipher::ctr;
-
+pub use futures_util::io::{ReadHalf, WriteHalf};
 
 fn encode_prefix_len(msg: Vec<u8>, max_len: u32) -> Result<Vec<u8>, String>{
     let len = msg.len();
@@ -23,9 +23,9 @@ fn encode_prefix_len(msg: Vec<u8>, max_len: u32) -> Result<Vec<u8>, String>{
     return Ok(msg)
 }
 
-pub async fn handshake<S>(mut socket: S, mut config: SecioConfig) -> Result<(), String>
-//                                                                      Result<(SecureHalfConnWrite<futures_util::io::split::WriteHalf<W>>,
-//                                                                                 SecureHalfConnRead<futures_util::io::split::ReadHalf<R>>), String>
+pub async fn handshake<S>(mut socket: S, mut config: SecioConfig) //-> Result<(), String>
+                                                                     -> Result<(SecureHalfConnWrite<WriteHalf<S>>,
+                                                                                 SecureHalfConnRead<ReadHalf<S>>), String>
 where S: AsyncRead + AsyncWrite  + Send + Unpin + 'static
 //,W: AsyncWrite  + Send + Unpin + 'static,R: AsyncWrite  + Send + Unpin + 'static
 {
@@ -336,8 +336,8 @@ where S: AsyncRead + AsyncWrite  + Send + Unpin + 'static
     // data_buf.truncate(content_length);
     // decoding_cipher.decrypt(&mut data_buf);
 
-    Ok(())
-    //Ok((secure_conn_write, secure_conn_read))
+    //Ok(())
+    Ok((secure_conn_write, secure_conn_read))
 }
 
 /// Custom algorithm translated from reference implementations. Needs to be the same algorithm

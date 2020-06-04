@@ -4,8 +4,8 @@ use super::algo::Digest;
 use futures::prelude::*;
 use crate::stream_cipher::StreamCipher;
 use log::debug;
-use std::{pin::Pin, task::Context, task::Poll, io};
-
+use std::{pin::Pin, task::Context, task::Poll};
+use futures_util::io;
 #[derive(Debug, Clone)]
 pub enum Hmac {
     Sha256(hmac::Hmac<Sha256>),
@@ -69,14 +69,17 @@ impl Hmac {
     }
 }
 
-pub struct SecureConn<S> {
+pub struct SecureHalfConnWrite<S> {
     pub socket: S,
     pub encoding_cipher: StreamCipher,
-    pub decoding_cipher: StreamCipher,
     pub encoding_hmac: Hmac,
-    pub decoding_hmac: Hmac,
 }
 
+pub struct SecureHalfConnRead<S> {
+    pub socket: S,
+    pub decoding_cipher: StreamCipher,
+    pub decoding_hmac: Hmac,
+}
 
 // impl AsyncRead for SecureConn<S>
 // {
@@ -86,9 +89,9 @@ pub struct SecureConn<S> {
 //     }
 // }
 
-impl <S: AsyncRead + AsyncWrite  + Send + Unpin + 'static>SecureConn<S> {
-    pub async fn send(&mut self, buf: & mut Vec<u8>) -> Result<(),String> {
-        self.encoding_cipher.encrypt( buf.as_mut());
+impl <S: AsyncWrite  + Send + Unpin + 'static>SecureHalfConnWrite<S> {
+    pub async fn send(&mut self, buf: &mut Vec<u8>) -> Result<(), String> {
+        self.encoding_cipher.encrypt(buf.as_mut());
         let signature = self.encoding_hmac.sign(buf.as_mut());
         buf.extend_from_slice(signature.as_ref());
         let mut res = self.socket.write_all(&(buf.len() as u32).to_be_bytes()).await;
@@ -102,7 +105,9 @@ impl <S: AsyncRead + AsyncWrite  + Send + Unpin + 'static>SecureConn<S> {
         }
         Ok(())
     }
+}
 
+impl <S: AsyncRead + Send + Unpin + 'static>SecureHalfConnRead<S> {
     pub async fn read(&mut self) -> Result<Vec<u8>,String>{
         let mut len = [0; 4];
         self.socket.read_exact(&mut len).await.unwrap();

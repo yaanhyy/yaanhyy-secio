@@ -1,6 +1,8 @@
 use rand::{self, RngCore};
 use super::config::SecioConfig;
 use futures::prelude::*;
+use futures::prelude::AsyncRead;
+use futures::prelude::AsyncWrite;
 use super::algo::{DEFAULT_AGREEMENTS_PROPOSITION, DEFAULT_CIPHERS_PROPOSITION, DEFAULT_DIGESTS_PROPOSITION, select_agreement, select_cipher, select_digest};
 use super::spipe::{Propose, Exchange};
 use super::exchange::{KeyAgreement, generate_agreement, agree};
@@ -8,9 +10,10 @@ use prost::Message;
 use sha2::{Digest as ShaDigestTrait, Sha256};
 use log::debug;
 use super::identity::PublicKey;
-use super::codec::{Hmac, SecureConn};
+use super::codec::{Hmac, SecureHalfConnWrite, SecureHalfConnRead};
 use std::{cmp::{self, Ordering, min}, io};
 use super::stream_cipher::ctr;
+
 
 fn encode_prefix_len(msg: Vec<u8>, max_len: u32) -> Result<Vec<u8>, String>{
     let len = msg.len();
@@ -20,8 +23,11 @@ fn encode_prefix_len(msg: Vec<u8>, max_len: u32) -> Result<Vec<u8>, String>{
     return Ok(msg)
 }
 
-pub async fn handshake<S>(mut socket: S, mut config: SecioConfig) -> Result<SecureConn<S>, String>
+pub async fn handshake<S>(mut socket: S, mut config: SecioConfig) -> Result<(), String>
+//                                                                      Result<(SecureHalfConnWrite<futures_util::io::split::WriteHalf<W>>,
+//                                                                                 SecureHalfConnRead<futures_util::io::split::ReadHalf<R>>), String>
 where S: AsyncRead + AsyncWrite  + Send + Unpin + 'static
+//,W: AsyncWrite  + Send + Unpin + 'static,R: AsyncWrite  + Send + Unpin + 'static
 {
     // step 1. Propose -- propose cipher suite + send pubkeys + nonce
     let local_nonce = {
@@ -266,8 +272,9 @@ where S: AsyncRead + AsyncWrite  + Send + Unpin + 'static
         let cipher = ctr(chosen_cipher, cipher_key, iv);
         (cipher, hmac)
     };
-
-    let mut secure_conn = SecureConn{socket: socket, encoding_cipher, decoding_cipher, encoding_hmac, decoding_hmac};
+    let (reader, writer) = socket.split();
+    let mut secure_conn_write = SecureHalfConnWrite{socket: writer, encoding_cipher:encoding_cipher, encoding_hmac};
+    let mut secure_conn_read = SecureHalfConnRead{socket: reader, decoding_cipher,  decoding_hmac};
     //receive remote send check nonce
     // let mut len = [0; 4];
     // socket.read_exact(&mut len).await.unwrap();
@@ -289,14 +296,14 @@ where S: AsyncRead + AsyncWrite  + Send + Unpin + 'static
     // let mut data_buf = remote_sendback_nonce_bytes;
     // data_buf.truncate(content_length);
     // decoding_cipher.decrypt(&mut data_buf);
-    let data_buf = secure_conn.read().await?;
+    let data_buf = secure_conn_read.read().await?;
     let n = min(data_buf.len(), local_nonce.len());
     if data_buf[.. n] != local_nonce[.. n] {
         return Err("SecioError::NonceVerificationFailed".to_string());
     }
 
     // Send our remote `nonce` to remote peer for check
-    secure_conn.send(& mut remote_nonce).await;
+    secure_conn_write.send(& mut remote_nonce).await;
     // encoding_cipher.encrypt(&mut remote_nonce);
     // let signature = encoding_hmac.sign(&remote_nonce[..]);
     // remote_nonce.extend_from_slice(signature.as_ref());
@@ -329,8 +336,8 @@ where S: AsyncRead + AsyncWrite  + Send + Unpin + 'static
     // data_buf.truncate(content_length);
     // decoding_cipher.decrypt(&mut data_buf);
 
-
-    Ok(secure_conn)
+    Ok(())
+    //Ok((secure_conn_write, secure_conn_read))
 }
 
 /// Custom algorithm translated from reference implementations. Needs to be the same algorithm
@@ -389,16 +396,16 @@ mod tests {
             let key1 = identity::Keypair::generate_ed25519();
             let mut config = SecioConfig::new(key1);
             let mut res = handshake(connec, config).await;
-            if let Ok(mut secure_conn) = res {
-                println!("handshake res: Ok");
-                let res = secure_conn.read().await;
-                if let Ok(data_buf) = res {
-                    let hello_str = std::str::from_utf8(&data_buf).unwrap();
-                    println!("{}", hello_str);
-                }
-            } else if let Err(res) = res{
-                println!("handshake res fail: {:?}", res);
-            }
+//            if let Ok((mut secure_conn_write, mut secure_conn_read)) = res {
+//                println!("handshake res: Ok");
+//                let res = secure_conn_read.read().await;
+//                if let Ok(data_buf) = res {
+//                    let hello_str = std::str::from_utf8(&data_buf).unwrap();
+//                    println!("{}", hello_str);
+//                }
+//            } else if let Err(res) = res{
+//                println!("handshake res fail: {:?}", res);
+//            }
         });
         Ok(())
 //        loop{

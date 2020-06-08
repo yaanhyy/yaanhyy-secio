@@ -114,7 +114,7 @@ impl <S: AsyncRead + Send + Unpin + 'static>SecureHalfConnRead<S> {
         let mut n = u32::from_be_bytes(len) as usize;
         let mut read_buf = vec![0u8; n];
         self.socket.read_exact(&mut read_buf).await.unwrap();
-        println!("buf_len:{},buf:{:?}", n, read_buf);
+        debug!("secio read buf_len:{},buf:{:?}", n, read_buf);
         let content_length = read_buf.len() - self.decoding_hmac.num_bytes();
         {
             let (crypted_data, expected_hash) = read_buf.split_at(content_length);

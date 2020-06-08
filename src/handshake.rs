@@ -14,6 +14,7 @@ use super::codec::{Hmac, SecureHalfConnWrite, SecureHalfConnRead};
 use std::{cmp::{self, Ordering, min}, io};
 use super::stream_cipher::ctr;
 pub use futures_util::io::{ReadHalf, WriteHalf};
+use log::debug;
 
 fn encode_prefix_len(msg: Vec<u8>, max_len: u32) -> Result<Vec<u8>, String>{
     let len = msg.len();
@@ -37,7 +38,7 @@ where S: AsyncRead + AsyncWrite  + Send + Unpin + 'static
             .map_err(|e| format!("rand err:{:?}", e));
         local_nonce
     };
-    println!("rand:{:?}", local_nonce);
+    debug!("rand:{:?}", local_nonce);
     let pubkey = config.key.public();
     let local_public_key_encoded = pubkey.into_protobuf_encoding();
     config.agreements_prop = Some(DEFAULT_AGREEMENTS_PROPOSITION.to_string());
@@ -50,11 +51,11 @@ where S: AsyncRead + AsyncWrite  + Send + Unpin + 'static
         hashes : config.digests_prop.clone(),
         pubkey : Some(local_public_key_encoded.clone())
     };
-    println!("propose_out:{:?}", propose_out);
+    debug!("propose_out:{:?}", propose_out);
     let mut local_proposition_bytes = Vec::with_capacity(propose_out.encoded_len());
     propose_out.encode(&mut local_proposition_bytes).expect("Vec<u8> provides capacity as needed");
 
-    println!("msg:{:?}", local_proposition_bytes);
+    debug!("msg:{:?}", local_proposition_bytes);
 
     //fix me, change to async
     let mut len = [0; 4];
@@ -62,7 +63,7 @@ where S: AsyncRead + AsyncWrite  + Send + Unpin + 'static
     let mut n = u32::from_be_bytes(len) as usize;
     let mut remote_proposition_bytes = vec![0u8; n];
     socket.read_exact(&mut remote_proposition_bytes).await.unwrap();
-    println!("buf_len:{},buf:{:?}", n, remote_proposition_bytes);
+    debug!("handshake remote propose buf_len:{},buf:{:?}", n, remote_proposition_bytes);
 
     let local_proposition_bytes_clone = local_proposition_bytes.clone();
     let res = socket.write_all(&(local_proposition_bytes_clone.len() as u32).to_be_bytes()).await;
@@ -81,7 +82,7 @@ where S: AsyncRead + AsyncWrite  + Send + Unpin + 'static
 
     let mut remote_public_key_encoded = propose_in.pubkey.unwrap_or_default();
     let mut remote_nonce = propose_in.rand.unwrap_or_default();
-    println!("remote_nonce:{:?}", remote_nonce);
+    debug!("remote_nonce:{:?}", remote_nonce);
 
     let remote_public_key = match PublicKey::from_protobuf_encoding(&remote_public_key_encoded) {
         Ok(p) => p,
@@ -194,7 +195,7 @@ where S: AsyncRead + AsyncWrite  + Send + Unpin + 'static
     let mut n = u32::from_be_bytes(len) as usize;
     let mut remote_exchange_bytes = vec![0u8; n];
     socket.read_exact(&mut remote_exchange_bytes).await.unwrap();
-    println!("buf_len:{},buf:{:?}", n, remote_exchange_bytes);
+    debug!("handshake remote exchange buf_len:{},buf:{:?}", n, remote_exchange_bytes);
 
     // Send our local `Exchange`.
     let res = socket.write_all(&(local_exch.len() as u32).to_be_bytes()).await;
@@ -223,7 +224,7 @@ where S: AsyncRead + AsyncWrite  + Send + Unpin + 'static
             return Err("SecioError::SignatureVerificationFailed".to_string())
         }
 
-        println!("successfully verified the remote's signature");
+        info!("successfully verified the remote's signature");
     }
 
     // step 2.2. Keys -- generate keys for mac + encryption

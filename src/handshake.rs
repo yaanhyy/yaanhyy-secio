@@ -8,13 +8,13 @@ use super::spipe::{Propose, Exchange};
 use super::exchange::{KeyAgreement, generate_agreement, agree};
 use prost::Message;
 use sha2::{Digest as ShaDigestTrait, Sha256};
-use log::debug;
+use log::{debug, info};
 use super::identity::PublicKey;
 use super::codec::{Hmac, SecureHalfConnWrite, SecureHalfConnRead};
 use std::{cmp::{self, Ordering, min}, io};
 use super::stream_cipher::ctr;
 pub use futures_util::io::{ReadHalf, WriteHalf};
-use log::debug;
+
 
 fn encode_prefix_len(msg: Vec<u8>, max_len: u32) -> Result<Vec<u8>, String>{
     let len = msg.len();

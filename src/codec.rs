@@ -1,7 +1,10 @@
 use hmac::{self, Mac};
 use sha2::{Sha256, Sha512};
 use super::algo::Digest;
-use futures::prelude::*;
+use futures::prelude::AsyncRead;
+use futures::prelude::AsyncWrite;
+use futures_util::io::AsyncWriteExt;
+use futures_util::io::AsyncReadExt;
 use crate::stream_cipher::StreamCipher;
 use log::debug;
 use std::{pin::Pin, task::Context, task::Poll};
@@ -130,5 +133,39 @@ impl <S: AsyncRead + Send + Unpin + 'static>SecureHalfConnRead<S> {
         data_buf.truncate(content_length);
         self.decoding_cipher.decrypt(&mut data_buf);
         return Ok(data_buf);
+    }
+}
+
+impl<S> AsyncRead for SecureHalfConnRead<S>
+    where
+        S: AsyncRead + AsyncWrite + Unpin + Send + 'static
+{
+    fn poll_read(mut self: Pin<&mut Self>, cx: &mut Context, buf: &mut [u8])
+                 -> Poll<Result<usize, io::Error>>
+    {
+        AsyncRead::poll_read(Pin::new(&mut self.socket), cx, buf)
+    }
+}
+
+impl<S> AsyncWrite for SecureHalfConnWrite<S>
+    where
+        S: AsyncRead + AsyncWrite + Unpin + Send + 'static
+{
+    fn poll_write(mut self: Pin<&mut Self>, cx: &mut Context, buf: &[u8])
+                  -> Poll<Result<usize, io::Error>>
+    {
+        AsyncWrite::poll_write(Pin::new(&mut self.socket), cx, buf)
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context)
+                  -> Poll<Result<(), io::Error>>
+    {
+        AsyncWrite::poll_flush(Pin::new(&mut self.socket), cx)
+    }
+
+    fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context)
+                  -> Poll<Result<(), io::Error>>
+    {
+        AsyncWrite::poll_close(Pin::new(&mut self.socket), cx)
     }
 }

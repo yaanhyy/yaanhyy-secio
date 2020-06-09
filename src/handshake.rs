@@ -16,6 +16,7 @@ use super::stream_cipher::ctr;
 pub use futures_util::io::{ReadHalf, WriteHalf};
 
 
+
 fn encode_prefix_len(msg: Vec<u8>, max_len: u32) -> Result<Vec<u8>, String>{
     let len = msg.len();
     if len as u32 > max_len {
@@ -24,10 +25,9 @@ fn encode_prefix_len(msg: Vec<u8>, max_len: u32) -> Result<Vec<u8>, String>{
     return Ok(msg)
 }
 
-pub async fn handshake<S>(mut socket: S, mut config: SecioConfig) //-> Result<(), String>
-                                                                     -> Result<(SecureHalfConnWrite<WriteHalf<S>>,
-                                                                                 SecureHalfConnRead<ReadHalf<S>>), String>
-where S: AsyncRead + AsyncWrite  + Send + Unpin + 'static
+pub async fn handshake<R, W>(mut reader: R, mut writer: W, mut config: SecioConfig) //-> Result<(), String>
+                                                                     -> Result<(SecureHalfConnRead<R>, SecureHalfConnWrite<W>), String>
+where R: AsyncRead  + Send + Unpin + 'static, W: AsyncWrite  + Send + Unpin + 'static
 //,W: AsyncWrite  + Send + Unpin + 'static,R: AsyncWrite  + Send + Unpin + 'static
 {
     // step 1. Propose -- propose cipher suite + send pubkeys + nonce
@@ -59,16 +59,16 @@ where S: AsyncRead + AsyncWrite  + Send + Unpin + 'static
 
     //fix me, change to async
     let mut len = [0; 4];
-    socket.read_exact(&mut len).await.unwrap();
+    reader.read_exact(&mut len).await.unwrap();
     let mut n = u32::from_be_bytes(len) as usize;
     let mut remote_proposition_bytes = vec![0u8; n];
-    socket.read_exact(&mut remote_proposition_bytes).await.unwrap();
+    reader.read_exact(&mut remote_proposition_bytes).await.unwrap();
     debug!("handshake remote propose buf_len:{},buf:{:?}", n, remote_proposition_bytes);
 
     let local_proposition_bytes_clone = local_proposition_bytes.clone();
-    let res = socket.write_all(&(local_proposition_bytes_clone.len() as u32).to_be_bytes()).await;
+    let res = writer.write_all(&(local_proposition_bytes_clone.len() as u32).to_be_bytes()).await;
     if let Ok(e) = res {
-        let res = socket.write_all(&(local_proposition_bytes_clone)).await;
+        let res = writer.write_all(&(local_proposition_bytes_clone)).await;
     }
 
     // step 1.1 Identify -- get identity from their key
@@ -191,16 +191,16 @@ where S: AsyncRead + AsyncWrite  + Send + Unpin + 'static
 
     // Receive the remote's `Exchange`.
     let mut len = [0; 4];
-    socket.read_exact(&mut len).await.unwrap();
+    reader.read_exact(&mut len).await.unwrap();
     let mut n = u32::from_be_bytes(len) as usize;
     let mut remote_exchange_bytes = vec![0u8; n];
-    socket.read_exact(&mut remote_exchange_bytes).await.unwrap();
+    reader.read_exact(&mut remote_exchange_bytes).await.unwrap();
     debug!("handshake remote exchange buf_len:{},buf:{:?}", n, remote_exchange_bytes);
 
     // Send our local `Exchange`.
-    let res = socket.write_all(&(local_exch.len() as u32).to_be_bytes()).await;
+    let res = writer.write_all(&(local_exch.len() as u32).to_be_bytes()).await;
     if let Ok(e) = res {
-        let res = socket.write_all(&(local_exch)).await;
+        let res = writer.write_all(&(local_exch)).await;
     }
 
     // step 2.1. Verify -- verify their exchange packet is good.
@@ -224,7 +224,7 @@ where S: AsyncRead + AsyncWrite  + Send + Unpin + 'static
             return Err("SecioError::SignatureVerificationFailed".to_string())
         }
 
-        info!("successfully verified the remote's signature");
+        println!("successfully verified the remote's signature");
     }
 
     // step 2.2. Keys -- generate keys for mac + encryption
@@ -273,15 +273,15 @@ where S: AsyncRead + AsyncWrite  + Send + Unpin + 'static
         let cipher = ctr(chosen_cipher, cipher_key, iv);
         (cipher, hmac)
     };
-    let (reader, writer) = socket.split();
+   // let (reader, writer) = socket.split();
     let mut secure_conn_write = SecureHalfConnWrite{socket: writer, encoding_cipher:encoding_cipher, encoding_hmac};
     let mut secure_conn_read = SecureHalfConnRead{socket: reader, decoding_cipher,  decoding_hmac};
     //receive remote send check nonce
     // let mut len = [0; 4];
-    // socket.read_exact(&mut len).await.unwrap();
+    // reader.read_exact(&mut len).await.unwrap();
     // let mut n = u32::from_be_bytes(len) as usize;
     // let mut remote_sendback_nonce_bytes = vec![0u8; n];
-    // socket.read_exact(&mut remote_sendback_nonce_bytes).await.unwrap();
+    // reader.read_exact(&mut remote_sendback_nonce_bytes).await.unwrap();
     // println!("buf_len:{},buf:{:?}", n, remote_sendback_nonce_bytes);
     // let content_length = remote_sendback_nonce_bytes.len() - decoding_hmac.num_bytes();
     // {
@@ -310,17 +310,17 @@ where S: AsyncRead + AsyncWrite  + Send + Unpin + 'static
     // remote_nonce.extend_from_slice(signature.as_ref());
     //
     //
-    // let res = socket.write_all(&(remote_nonce.len() as u32).to_be_bytes()).await;
+    // let res = writer.write_all(&(remote_nonce.len() as u32).to_be_bytes()).await;
     // if let Ok(e) = res {
-    //     let res = socket.write_all(&(remote_nonce)).await;
+    //     let res = writer.write_all(&(remote_nonce)).await;
     // }
 
     //test
     // let mut len = [0; 4];
-    // socket.read_exact(&mut len).await.unwrap();
+    // reader.read_exact(&mut len).await.unwrap();
     // let mut n = u32::from_be_bytes(len) as usize;
     // let mut hello_buf = vec![0u8; n];
-    // socket.read_exact(&mut hello_buf).await.unwrap();
+    // reader.read_exact(&mut hello_buf).await.unwrap();
     // println!("buf_len:{},buf:{:?}", n, hello_buf);
     // let content_length = hello_buf.len() - decoding_hmac.num_bytes();
     // {
@@ -338,7 +338,7 @@ where S: AsyncRead + AsyncWrite  + Send + Unpin + 'static
     // decoding_cipher.decrypt(&mut data_buf);
 
     //Ok(())
-    Ok((secure_conn_write, secure_conn_read))
+    Ok((secure_conn_read, secure_conn_write))
 }
 
 /// Custom algorithm translated from reference implementations. Needs to be the same algorithm
@@ -389,6 +389,10 @@ mod tests {
     use std::thread::sleep;
     use std::time;
     use sha2::{Digest as ShaDigestTrait, Sha256};
+    pub use futures_util::io::{ReadHalf, WriteHalf};
+    use futures::prelude::AsyncRead;
+    use futures::prelude::AsyncWrite;
+    use futures::prelude::*;
     #[test]
     fn handshake_test() -> Result<(), String>{
         async_std::task::block_on(async move {
@@ -396,17 +400,21 @@ mod tests {
             let connec = listener.accept().await.unwrap().0;
             let key1 = identity::Keypair::generate_ed25519();
             let mut config = SecioConfig::new(key1);
-            let mut res = handshake(connec, config).await;
-//            if let Ok((mut secure_conn_write, mut secure_conn_read)) = res {
-//                println!("handshake res: Ok");
-//                let res = secure_conn_read.read().await;
-//                if let Ok(data_buf) = res {
-//                    let hello_str = std::str::from_utf8(&data_buf).unwrap();
-//                    println!("{}", hello_str);
-//                }
-//            } else if let Err(res) = res{
-//                println!("handshake res fail: {:?}", res);
-//            }
+            let (reader, writer) = connec.split();
+            let mut res = handshake(reader, writer, config).await;
+            if let Ok((mut secure_conn_read, mut secure_conn_write)) = res {
+                println!("handshake res: Ok");
+//                let mut len = [0u8; 4];
+//                let res = secure_conn_read.read_exact(&len).await;
+//                println!("buf:{:?}", len);
+                let res = secure_conn_read.read().await;
+                if let Ok(data_buf) = res {
+                    let hello_str = std::str::from_utf8(&data_buf).unwrap();
+                    println!("{}", hello_str);
+                }
+            } else if let Err(res) = res{
+                println!("handshake res fail: {:?}", res);
+            }
         });
         Ok(())
 //        loop{

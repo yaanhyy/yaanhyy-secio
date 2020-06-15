@@ -57,6 +57,13 @@ where S: AsyncRead + AsyncWrite  + Send + Unpin + 'static
 
     debug!("msg:{:?}", local_proposition_bytes);
 
+
+    let local_proposition_bytes_clone = local_proposition_bytes.clone();
+    let res = socket.write_all(&(local_proposition_bytes_clone.len() as u32).to_be_bytes()).await;
+    if let Ok(e) = res {
+        let res = socket.write_all(&(local_proposition_bytes_clone)).await;
+    }
+
     //fix me, change to async
     let mut len = [0; 4];
     socket.read_exact(&mut len).await.unwrap();
@@ -65,11 +72,7 @@ where S: AsyncRead + AsyncWrite  + Send + Unpin + 'static
     socket.read_exact(&mut remote_proposition_bytes).await.unwrap();
     debug!("handshake remote propose buf_len:{},buf:{:?}", n, remote_proposition_bytes);
 
-    let local_proposition_bytes_clone = local_proposition_bytes.clone();
-    let res = socket.write_all(&(local_proposition_bytes_clone.len() as u32).to_be_bytes()).await;
-    if let Ok(e) = res {
-        let res = socket.write_all(&(local_proposition_bytes_clone)).await;
-    }
+
 
     // step 1.1 Identify -- get identity from their key
     let mut  propose_in: Propose = match Propose::decode(&remote_proposition_bytes[..]) {
@@ -188,6 +191,12 @@ where S: AsyncRead + AsyncWrite  + Send + Unpin + 'static
         buf
     };
 
+    // Send our local `Exchange`.
+    let res = socket.write_all(&(local_exch.len() as u32).to_be_bytes()).await;
+    if let Ok(e) = res {
+        let res = socket.write_all(&(local_exch)).await;
+    }
+
 
     // Receive the remote's `Exchange`.
     let mut len = [0; 4];
@@ -197,11 +206,6 @@ where S: AsyncRead + AsyncWrite  + Send + Unpin + 'static
     socket.read_exact(&mut remote_exchange_bytes).await.unwrap();
     debug!("handshake remote exchange buf_len:{},buf:{:?}", n, remote_exchange_bytes);
 
-    // Send our local `Exchange`.
-    let res = socket.write_all(&(local_exch.len() as u32).to_be_bytes()).await;
-    if let Ok(e) = res {
-        let res = socket.write_all(&(local_exch)).await;
-    }
 
     // step 2.1. Verify -- verify their exchange packet is good.
     let mut  exchange_in: Exchange = match Exchange::decode(&remote_exchange_bytes[..]) {
@@ -297,14 +301,17 @@ where S: AsyncRead + AsyncWrite  + Send + Unpin + 'static
     // let mut data_buf = remote_sendback_nonce_bytes;
     // data_buf.truncate(content_length);
     // decoding_cipher.decrypt(&mut data_buf);
+
+    // Send our remote `nonce` to remote peer for check
+    secure_conn_write.send(& mut remote_nonce).await;
+
     let data_buf = secure_conn_read.read().await?;
     let n = min(data_buf.len(), local_nonce.len());
     if data_buf[.. n] != local_nonce[.. n] {
         return Err("SecioError::NonceVerificationFailed".to_string());
     }
 
-    // Send our remote `nonce` to remote peer for check
-    secure_conn_write.send(& mut remote_nonce).await;
+
     // encoding_cipher.encrypt(&mut remote_nonce);
     // let signature = encoding_hmac.sign(&remote_nonce[..]);
     // remote_nonce.extend_from_slice(signature.as_ref());
@@ -397,16 +404,16 @@ mod tests {
             let key1 = identity::Keypair::generate_ed25519();
             let mut config = SecioConfig::new(key1);
             let mut res = handshake(connec, config).await;
-//            if let Ok((mut secure_conn_write, mut secure_conn_read)) = res {
-//                println!("handshake res: Ok");
-//                let res = secure_conn_read.read().await;
-//                if let Ok(data_buf) = res {
-//                    let hello_str = std::str::from_utf8(&data_buf).unwrap();
-//                    println!("{}", hello_str);
-//                }
-//            } else if let Err(res) = res{
-//                println!("handshake res fail: {:?}", res);
-//            }
+            if let Ok((mut secure_conn_write, mut secure_conn_read)) = res {
+                println!("handshake res: Ok");
+                let res = secure_conn_read.read().await;
+                if let Ok(data_buf) = res {
+                    let hello_str = std::str::from_utf8(&data_buf).unwrap();
+                    println!("{}", hello_str);
+                }
+            } else if let Err(res) = res{
+                println!("handshake res fail: {:?}", res);
+            }
         });
         Ok(())
 //        loop{

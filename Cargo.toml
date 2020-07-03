@@ -19,7 +19,7 @@ thiserror = "1.0"
 multihash = "0.11.0"
 zeroize = "1"
 asn1_der = "0.6.1"
-ring = "*"
+ring = "0.14"
 fnv = "1.0"
 libsecp256k1 = { version = "0.3.1", optional = true }
 log = "0.4"

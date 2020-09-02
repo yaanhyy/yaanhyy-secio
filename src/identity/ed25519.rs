@@ -25,6 +25,9 @@ use rand::RngCore;
 use zeroize::Zeroize;
 use core::fmt;
 
+use ed25519::Signer;
+use ed25519_dalek::ed25519::signature::Signature;
+use ed25519_dalek::Verifier;
 /// An Ed25519 keypair.
 pub struct Keypair(ed25519::Keypair);
 
